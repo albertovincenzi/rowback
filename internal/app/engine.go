@@ -2,7 +2,7 @@ package app
 
 import (
 	"bufio"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -48,7 +48,7 @@ func indexPath(dumpPath, indexDir string) string {
 	if err != nil {
 		abs = dumpPath
 	}
-	h := sha1.Sum([]byte(abs))
+	h := sha256.Sum256([]byte(abs))
 	name := fmt.Sprintf("%s-%x.idx.json", filepath.Base(dumpPath), h[:6])
 	return filepath.Join(indexDir, name)
 }
@@ -62,6 +62,7 @@ func loadIndex(dumpPath, indexDir string) *dumpIndex {
 		return nil
 	}
 	for _, p := range []string{indexPath(dumpPath, indexDir), dumpPath + ".idx.json"} {
+		// #nosec G304 -- p is derived from the dump path the local user explicitly chose.
 		b, err := os.ReadFile(p)
 		if err != nil {
 			continue
@@ -80,11 +81,11 @@ func loadIndex(dumpPath, indexDir string) *dumpIndex {
 
 func saveIndex(dumpPath, indexDir string, idx *dumpIndex) {
 	p := indexPath(dumpPath, indexDir)
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 		return
 	}
 	if b, err := json.Marshal(idx); err == nil {
-		_ = os.WriteFile(p, b, 0o644)
+		_ = os.WriteFile(p, b, 0o600)
 	}
 }
 

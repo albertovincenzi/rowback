@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
+	"time"
 )
 
 // job holds the state of the single active/last extraction for the UI.
@@ -55,9 +55,17 @@ func serveUI(addr, defaultDump string) error {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, strings.ReplaceAll(indexHTML, "__DUMP__", htmlEscape(defaultDump)))
+	// Serve the embedded production frontend (index.html, app.css, app.js).
+	mux.Handle("/", http.FileServerFS(webRoot()))
+
+	// /api/config feeds the client its defaults as JSON, so the HTML is served
+	// verbatim from the embedded file rather than string-templated in Go.
+	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"defaultDump":  defaultDump,
+			"defaultQuery": defaultQuery,
+		})
 	})
 
 	mux.HandleFunc("/api/run", func(w http.ResponseWriter, r *http.Request) {
@@ -94,7 +102,7 @@ func serveUI(addr, defaultDump string) error {
 		// writable directory next to the dump (or the home dir).
 		cfg.OutPath = resolveOutPath(cfg.OutPath, cfg.DumpPath)
 		if dir := filepath.Dir(cfg.OutPath); dir != "" {
-			if err := os.MkdirAll(dir, 0o755); err != nil {
+			if err := os.MkdirAll(dir, 0o750); err != nil {
 				j.mu.Unlock()
 				http.Error(w, "cannot create restore folder: "+err.Error(), http.StatusBadRequest)
 				return
@@ -188,8 +196,19 @@ func serveUI(addr, defaultDump string) error {
 		http.ServeFile(w, r, path)
 	})
 
+	// A long write timeout would cut off the live SSE progress stream, so it is
+	// intentionally left at 0 (unbounded); the read/idle timeouts still bound
+	// slow-loris-style header and connection abuse. The server binds to
+	// loopback only (see Run's default -addr 127.0.0.1).
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	fmt.Printf("rowback UI → http://%s\n", addr)
-	return http.ListenAndServe(addr, mux)
+	return srv.ListenAndServe()
 }
 
 func writeSSE(w http.ResponseWriter, p Progress, errStr string) {
@@ -199,17 +218,10 @@ func writeSSE(w http.ResponseWriter, p Progress, errStr string) {
 		Pct float64 `json:"pct"`
 	}
 	b, _ := json.Marshal(payload{Progress: p, Err: errStr, Pct: pct(p.BytesRead, p.TotalBytes)})
-	fmt.Fprintf(w, "data: %s\n\n", b)
-}
-
-func splitCSV(s string) []string {
-	var out []string
-	for _, r := range strings.Split(s, ",") {
-		if r = strings.TrimSpace(r); r != "" {
-			out = append(out, r)
-		}
-	}
-	return out
+	// SSE frame written to a text/event-stream response (not HTML); b is JSON.
+	_, _ = w.Write([]byte("data: "))
+	_, _ = w.Write(b)
+	_, _ = w.Write([]byte("\n\n"))
 }
 
 func errMsg(err error) string {
@@ -217,10 +229,6 @@ func errMsg(err error) string {
 		return "error: " + err.Error()
 	}
 	return ""
-}
-
-func htmlEscape(s string) string {
-	return strings.NewReplacer(`&`, "&amp;", `<`, "&lt;", `>`, "&gt;", `"`, "&quot;").Replace(s)
 }
 
 // resolveOutPath turns a relative output path into an absolute one in a writable
@@ -253,7 +261,7 @@ func isWritableDir(dir string) bool {
 		return false
 	}
 	name := f.Name()
-	f.Close()
-	os.Remove(name)
+	_ = f.Close()
+	_ = os.Remove(name)
 	return true
 }

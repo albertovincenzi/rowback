@@ -49,10 +49,12 @@ func startDetached(addr string) error {
 	if err != nil {
 		return err
 	}
+	// #nosec G204 -- bin is resolved from fixed, app-bundle-relative locations
+	// (see resolveBinary); the arguments are constant flags, none user-supplied.
 	cmd := exec.Command(bin, "-serve", "-addr", addr, "-dump", defaultDump())
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if logf, err := os.OpenFile(filepath.Join(os.TempDir(), "rowback-server.log"),
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
 		cmd.Stdout = logf
 		cmd.Stderr = logf
 	}
