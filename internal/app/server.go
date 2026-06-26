@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 )
 
@@ -55,9 +54,17 @@ func serveUI(addr, defaultDump string) error {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, strings.ReplaceAll(indexHTML, "__DUMP__", htmlEscape(defaultDump)))
+	// Serve the embedded production frontend (index.html, app.css, app.js).
+	mux.Handle("/", http.FileServerFS(webRoot()))
+
+	// /api/config feeds the client its defaults as JSON, so the HTML is served
+	// verbatim from the embedded file rather than string-templated in Go.
+	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"defaultDump":  defaultDump,
+			"defaultQuery": defaultQuery,
+		})
 	})
 
 	mux.HandleFunc("/api/run", func(w http.ResponseWriter, r *http.Request) {
@@ -202,25 +209,11 @@ func writeSSE(w http.ResponseWriter, p Progress, errStr string) {
 	fmt.Fprintf(w, "data: %s\n\n", b)
 }
 
-func splitCSV(s string) []string {
-	var out []string
-	for _, r := range strings.Split(s, ",") {
-		if r = strings.TrimSpace(r); r != "" {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
 func errMsg(err error) string {
 	if err != nil {
 		return "error: " + err.Error()
 	}
 	return ""
-}
-
-func htmlEscape(s string) string {
-	return strings.NewReplacer(`&`, "&amp;", `<`, "&lt;", `>`, "&gt;", `"`, "&quot;").Replace(s)
 }
 
 // resolveOutPath turns a relative output path into an absolute one in a writable
