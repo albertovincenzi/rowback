@@ -1,5 +1,8 @@
 # rowback
 
+[![CI](https://github.com/albertovincenzi/rowback/actions/workflows/ci.yml/badge.svg)](https://github.com/albertovincenzi/rowback/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **Surgically restore deleted rows from a massive MySQL/MariaDB dump.**
 
 You ran a `DELETE` you regret, and all you have is last night's multi‑gigabyte

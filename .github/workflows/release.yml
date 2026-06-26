@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build & publish binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build cross-platform binaries
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          targets="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64"
+          for t in $targets; do
+            GOOS="${t%/*}"; GOARCH="${t#*/}"
+            bin="rowback"; [ "$GOOS" = "windows" ] && bin="rowback.exe"
+            echo "building $GOOS/$GOARCH"
+            CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build -trimpath \
+              -ldflags "-s -w" -o "$bin" ./cmd/rowback
+            name="rowback_${VERSION}_${GOOS}_${GOARCH}"
+            if [ "$GOOS" = "windows" ]; then
+              zip -q "dist/${name}.zip" "$bin" README.md LICENSE
+            else
+              tar -czf "dist/${name}.tar.gz" "$bin" README.md LICENSE
+            fi
+            rm -f "$bin"
+          done
+          (cd dist && sha256sum * > checksums.txt)
+          ls -la dist
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/* --generate-notes --title "rowback ${GITHUB_REF_NAME}"
