@@ -87,12 +87,14 @@ func Extract(cfg Config, progress func(Progress), collect *Result) (Progress, er
 		totalBytes += rng.End - rng.Start
 	}
 
+	// #nosec G304 -- cfg.DumpPath is the dump the local user chose to read.
 	f, err := os.Open(cfg.DumpPath)
 	if err != nil {
 		return Progress{}, err
 	}
 	defer f.Close()
 
+	// #nosec G304 -- cfg.OutPath is the restore file the local user chose to write.
 	out, err := os.Create(cfg.OutPath)
 	if err != nil {
 		return Progress{}, err
@@ -328,6 +330,7 @@ func compileMain(comps []Comparison, colpos map[string]int, subSets map[int]map[
 // buildIndex scans the dump once with block reads (no per-line allocation),
 // recording each table's byte range from its structure marker to the next.
 func buildIndex(dumpPath string, report func(off, total int64)) (*dumpIndex, error) {
+	// #nosec G304 -- dumpPath is the file the local user explicitly asked to scan.
 	f, err := os.Open(dumpPath)
 	if err != nil {
 		return nil, err

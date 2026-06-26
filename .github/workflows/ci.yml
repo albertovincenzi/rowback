@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: CI only needs to read the repository contents.
+permissions:
+  contents: read
+
 jobs:
   build-test:
     name: build & test

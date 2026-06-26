@@ -37,6 +37,8 @@ func startServer() (string, *exec.Cmd, error) {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	url := "http://" + addr
 
+	// #nosec G204 -- bin is resolved from fixed, app-bundle-relative locations
+	// (see resolveBinary); the arguments are constant flags, none user-supplied.
 	cmd := exec.Command(bin, "-serve", "-addr", addr, "-dump", defaultDump())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -111,7 +113,7 @@ func waitReady(url string, timeout time.Duration) error {
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(url)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil
 		}
 		time.Sleep(80 * time.Millisecond)

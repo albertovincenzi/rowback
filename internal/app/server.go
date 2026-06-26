@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // job holds the state of the single active/last extraction for the UI.
@@ -101,7 +102,7 @@ func serveUI(addr, defaultDump string) error {
 		// writable directory next to the dump (or the home dir).
 		cfg.OutPath = resolveOutPath(cfg.OutPath, cfg.DumpPath)
 		if dir := filepath.Dir(cfg.OutPath); dir != "" {
-			if err := os.MkdirAll(dir, 0o755); err != nil {
+			if err := os.MkdirAll(dir, 0o750); err != nil {
 				j.mu.Unlock()
 				http.Error(w, "cannot create restore folder: "+err.Error(), http.StatusBadRequest)
 				return
@@ -195,8 +196,19 @@ func serveUI(addr, defaultDump string) error {
 		http.ServeFile(w, r, path)
 	})
 
+	// A long write timeout would cut off the live SSE progress stream, so it is
+	// intentionally left at 0 (unbounded); the read/idle timeouts still bound
+	// slow-loris-style header and connection abuse. The server binds to
+	// loopback only (see Run's default -addr 127.0.0.1).
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	fmt.Printf("rowback UI → http://%s\n", addr)
-	return http.ListenAndServe(addr, mux)
+	return srv.ListenAndServe()
 }
 
 func writeSSE(w http.ResponseWriter, p Progress, errStr string) {
@@ -206,7 +218,10 @@ func writeSSE(w http.ResponseWriter, p Progress, errStr string) {
 		Pct float64 `json:"pct"`
 	}
 	b, _ := json.Marshal(payload{Progress: p, Err: errStr, Pct: pct(p.BytesRead, p.TotalBytes)})
-	fmt.Fprintf(w, "data: %s\n\n", b)
+	// SSE frame written to a text/event-stream response (not HTML); b is JSON.
+	_, _ = w.Write([]byte("data: "))
+	_, _ = w.Write(b)
+	_, _ = w.Write([]byte("\n\n"))
 }
 
 func errMsg(err error) string {
@@ -246,7 +261,7 @@ func isWritableDir(dir string) bool {
 		return false
 	}
 	name := f.Name()
-	f.Close()
-	os.Remove(name)
+	_ = f.Close()
+	_ = os.Remove(name)
 	return true
 }
