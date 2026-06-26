@@ -184,6 +184,7 @@ function finishRun(label) {
   run.disabled = false;
   run.classList.remove('busy');
   run.querySelector('.run-label').textContent = label;
+  window.__rbScan = false; // ease the hero animation back to idle
 }
 
 function loadResult() {
@@ -472,6 +473,7 @@ $('run').addEventListener('click', () => {
   run.disabled = true;
   run.classList.add('busy');
   run.querySelector('.run-label').textContent = 'Running…';
+  window.__rbScan = true; // intensify the hero recovery animation while scanning
   $('dl').classList.add('hidden');
   $('cov').classList.add('hidden');
   $('curate').classList.add('hidden');
@@ -506,3 +508,144 @@ $('run').addEventListener('click', () => {
 });
 
 listen();
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Hero "scan & recover" visualization.
+
+   A dense field of dim rows (a stand-in for the dump) with a scan beam sweeping
+   across it; as the beam passes, a fraction of rows "match" — they flash, turn
+   recovery-green, and lift back into place. It literally animates what rowback
+   does. Cheap (one canvas, throttled rAF), pauses when the tab is hidden, and
+   respects prefers-reduced-motion (draws a single static frame).
+   ────────────────────────────────────────────────────────────────────────── */
+(function heroRecover() {
+  const canvas = document.getElementById('recoverCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d', { alpha: true });
+  if (!ctx) return;
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const COL_W = 18;   // px per column
+  const ROW_H = 11;   // px per row
+  const BEAM_W = 120; // glow width of the scan beam
+
+  let W = 0, H = 0, dpr = 1;
+  let cols = [];
+  let beam = 0, last = 0, acc = 0, visible = true;
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+
+  function build() {
+    const rect = canvas.getBoundingClientRect();
+    W = Math.max(1, rect.width);
+    H = Math.max(1, rect.height);
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const nCols = Math.ceil(W / COL_W) + 1;
+    const nRows = Math.ceil(H / ROW_H) + 1;
+    cols = [];
+    for (let i = 0; i < nCols; i++) {
+      const rows = [];
+      for (let j = 0; j < nRows; j++) {
+        rows.push({
+          y: j * ROW_H + (i % 2 ? 3 : 0),
+          w: rand(7, COL_W - 4),
+          rec: Math.random() < 0.16, // this row is recoverable
+          lit: 0,                    // 0..1 recovery glow
+        });
+      }
+      cols.push({ x: i * COL_W + 4, rows, armed: true });
+    }
+    beam = -W * 0.18;
+  }
+
+  function frame(t) {
+    raf = requestAnimationFrame(frame);
+    if (!visible) { last = t; return; }
+    const dt = Math.min(48, t - last);
+    last = t;
+    acc += dt;
+    if (acc < 28) return; // throttle ~33fps
+    const step = acc; acc = 0;
+
+    const speed = (window.__rbScan ? 0.28 : 0.13) * step; // px this tick
+    beam += speed;
+    if (beam > W + BEAM_W) { beam = -BEAM_W; cols.forEach((c) => { c.armed = true; }); }
+
+    // Arm/trigger recoveries as the beam crosses each column.
+    for (const col of cols) {
+      if (col.armed && beam >= col.x) {
+        col.armed = false;
+        for (const r of col.rows) if (r.rec && Math.random() < (window.__rbScan ? 0.9 : 0.6)) r.lit = 1;
+      }
+      for (const r of col.rows) if (r.lit > 0) r.lit = Math.max(0, r.lit - step * 0.0016);
+    }
+    draw();
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Dim base rows (single fill style, cheap).
+    ctx.fillStyle = 'rgba(120,142,168,0.13)';
+    for (const col of cols) {
+      const dist = Math.abs(col.x - beam);
+      const inBeam = dist < BEAM_W * 0.5;
+      for (const r of col.rows) {
+        if (r.lit > 0.02) continue; // recovered rows drawn in the lit pass
+        if (inBeam) {
+          ctx.fillStyle = 'rgba(122,208,255,' + (0.13 + (1 - dist / (BEAM_W * 0.5)) * 0.28).toFixed(3) + ')';
+          ctx.fillRect(col.x, r.y, r.w, 4);
+          ctx.fillStyle = 'rgba(120,142,168,0.13)';
+        } else {
+          ctx.fillRect(col.x, r.y, r.w, 4);
+        }
+      }
+    }
+
+    // Recovered rows: green, brighter, lifted, with a soft glow.
+    ctx.shadowColor = 'rgba(74,222,128,0.9)';
+    for (const col of cols) {
+      for (const r of col.rows) {
+        if (r.lit <= 0.02) continue;
+        const a = r.lit;
+        ctx.shadowBlur = 10 * a;
+        ctx.fillStyle = 'rgba(74,222,128,' + (0.35 + a * 0.6).toFixed(3) + ')';
+        ctx.fillRect(col.x, r.y - a * 4, r.w + a * 3, 4);
+      }
+    }
+    ctx.shadowBlur = 0;
+
+    // The scan beam itself.
+    if (beam > -BEAM_W && beam < W + BEAM_W) {
+      const g = ctx.createLinearGradient(beam - BEAM_W * 0.5, 0, beam + BEAM_W * 0.5, 0);
+      g.addColorStop(0, 'rgba(79,157,255,0)');
+      g.addColorStop(0.5, 'rgba(122,208,255,0.18)');
+      g.addColorStop(1, 'rgba(79,157,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(beam - BEAM_W * 0.5, 0, BEAM_W, H);
+      ctx.fillStyle = 'rgba(170,225,255,0.85)';
+      ctx.fillRect(beam - 0.75, 0, 1.5, H);
+    }
+  }
+
+  let raf = 0;
+  document.addEventListener('visibilitychange', () => { visible = !document.hidden; });
+  let resizeTimer = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(build, 150);
+  });
+
+  build();
+  if (reduce) {
+    // Static frame: light up the recoverable rows once, no motion.
+    cols.forEach((c) => c.rows.forEach((r) => { if (r.rec) r.lit = 0.85; }));
+    beam = W * 0.62;
+    draw();
+  } else {
+    raf = requestAnimationFrame(frame);
+  }
+})();

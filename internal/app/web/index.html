@@ -10,10 +10,11 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
+<div class="scanlines" aria-hidden="true"></div>
 <div class="wrap" id="wrap">
   <header class="hero">
-    <div class="aurora" aria-hidden="true"></div>
-    <div class="grid-overlay" aria-hidden="true"></div>
+    <canvas class="recover-canvas" id="recoverCanvas" aria-hidden="true"></canvas>
+    <div class="hero-veil" aria-hidden="true"></div>
     <div class="hero-inner">
       <div class="brand">
         <svg class="mark" viewBox="0 0 48 48" role="img" aria-label="Rowback logo">
@@ -30,13 +31,16 @@
           <rect x="15" y="28.8" width="12.5" height="3.1" rx="1.55" fill="#3fb950"/>
         </svg>
         <span class="wordmark">row<span class="b">back</span></span>
-        <span class="badge">partial restore</span>
+        <span class="badge"><span class="badge-dot"></span>partial restore</span>
       </div>
-      <h1 class="tagline">Surgically restore deleted rows<br>from a massive SQL dump.</h1>
-      <p class="subtag">Paste the query whose rows you want back. Rowback runs its <code>WHERE</code> against the dump and emits restore SQL — without loading the whole file into memory.</p>
+      <p class="kicker">Surgical SQL recovery engine</p>
+      <h1 class="tagline">Bring <span class="accentword">deleted rows</span> back from a massive&nbsp;dump.</h1>
+      <p class="subtag">Paste the query whose rows you want back. Rowback runs its <code>WHERE</code> against the dump and emits restore SQL — streaming, never loading the whole file into memory.</p>
       <ol class="flow" aria-label="How it works">
         <li><span class="fdot"></span>Point at the dump</li>
+        <li class="flow-arrow" aria-hidden="true">→</li>
         <li><span class="fdot"></span>Paste the query</li>
+        <li class="flow-arrow" aria-hidden="true">→</li>
         <li><span class="fdot"></span>Curate &amp; export</li>
       </ol>
     </div>
@@ -45,7 +49,7 @@
   <div class="rail">
     <section class="step" data-n="1" style="--i:0">
       <span class="node" aria-hidden="true">1</span>
-      <h2>Source dump</h2>
+      <h2><span class="h2-ix">01</span>Source dump</h2>
       <label for="dump">Path to mysqldump <code>.sql</code></label>
       <input id="dump" placeholder="/path/to/dump.sql" spellcheck="false" autocomplete="off">
       <div class="hint">A one-time index is cached in <code>~/.rowback/indexes</code> (associated to this dump), so later queries seek straight to the tables they need.</div>
@@ -63,7 +67,7 @@
 
     <section class="step" data-n="2" style="--i:1">
       <span class="node" aria-hidden="true">2</span>
-      <h2>Query</h2>
+      <h2><span class="h2-ix">02</span>Query</h2>
       <label for="query">SQL <span class="muted">— DELETE / SELECT; the WHERE clause selects rows. Supports IN-lists, =, !=, and one IN (SELECT … WHERE …).</span></label>
       <textarea id="query" spellcheck="false" autocomplete="off"></textarea>
       <div class="row2">
@@ -93,19 +97,21 @@
 
     <section class="step" data-n="3" style="--i:2">
       <span class="node" aria-hidden="true">3</span>
-      <h2>Run &amp; restore</h2>
+      <h2><span class="h2-ix">03</span>Run &amp; restore</h2>
       <button class="run" id="run" type="button">
         <span class="run-label">Extract matching rows</span>
         <svg class="run-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <div class="bar" role="progressbar" aria-label="Scan progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><i id="barfill"></i></div>
-      <div class="grid">
-        <div class="stat"><div class="k">Read</div><div class="v" id="s-pct">0%</div></div>
-        <div class="stat"><div class="k">Sub resolved</div><div class="v" id="s-sub">0</div></div>
-        <div class="stat"><div class="k">Rows scanned</div><div class="v" id="s-main">0</div></div>
-        <div class="stat match"><div class="k">Matched</div><div class="v" id="s-match">0</div></div>
+      <div class="console">
+        <div class="bar" role="progressbar" aria-label="Scan progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><i id="barfill"></i></div>
+        <div class="grid">
+          <div class="stat"><div class="k">Read</div><div class="v" id="s-pct">0%</div></div>
+          <div class="stat"><div class="k">Sub resolved</div><div class="v" id="s-sub">0</div></div>
+          <div class="stat"><div class="k">Rows scanned</div><div class="v" id="s-main">0</div></div>
+          <div class="stat match"><div class="k">Matched</div><div class="v" id="s-match">0</div></div>
+        </div>
+        <p class="status" id="status" role="status" aria-live="polite"></p>
       </div>
-      <p class="status" id="status" role="status" aria-live="polite"></p>
       <div class="cov hidden" id="cov"></div>
       <a class="dl hidden" id="dl" href="/api/download">↓ Download full restore SQL</a>
     </section>
@@ -113,7 +119,7 @@
 
   <section class="step solo hidden" data-n="4" id="curate">
     <span class="node" aria-hidden="true">4</span>
-    <h2>Preview &amp; curate</h2>
+    <h2><span class="h2-ix">04</span>Preview &amp; curate</h2>
     <div class="tabs" id="tabs" role="tablist"></div>
     <div class="capnote hidden" id="capnote"></div>
     <div class="filterbar">
@@ -143,7 +149,7 @@
   </section>
 
   <footer class="foot">
-    <span>rowback</span><span class="dotsep">·</span><span>runs locally · nothing leaves your machine</span>
+    <span class="foot-mark">rowback</span><span class="dotsep">·</span><span>runs locally · nothing leaves your machine</span>
   </footer>
 </div>
 <script src="app.js" defer></script>
